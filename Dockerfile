@@ -19,4 +19,3 @@ RUN CHROME_VERSION="$(google-chrome --version)" \
     && sudo mv chromedriver /usr/local/bin/chromedriver \
     && sudo chmod +x /usr/local/bin/chromedriver \
     && chromedriver --version
-
