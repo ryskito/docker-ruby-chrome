@@ -1,34 +1,45 @@
-FROM ryskito/docker_ruby_imagemagick:ruby2.6.3_imagemagick7.0.10-0_v1.0.0
+FROM circleci/ruby:2.6.3-stretch-node
 
-RUN apk add -U chromium chromium-chromedriver
-RUN apk --update add libxml2-dev
-RUN apk --update add xz
-RUN apk --update add tar
-RUN apk --update add build-base
-RUN apk --update add libxslt-dev
-RUN apk --update add curl-dev
-RUN apk --update add curl
-RUN apk --update add unzip
-RUN apk --update add postgresql-dev
-RUN apk --update add nodejs
-RUN apk --update add yarn
-RUN apk --update add dbus-glib
-RUN apk --update add libxinerama-dev
-RUN apk --update add libxinerama
-RUN apk --update add libreoffice
-RUN apk --update add libreoffice-lang-ja
-RUN apk --update add tzdata
-RUN apk --update add git
-RUN apk --update add exiftool
-RUN apk --update add libjpeg-turbo-dev
-RUN apk --update add libpng-dev
-RUN apk --update add ghostscript \
-    && ghost_script_version=9.27 \
-    && ipa_font_file=IPAexfont00401 \
-    && wget https://ipafont.ipa.go.jp/IPAexfont/${ipa_font_file}.zip -O /root/${ipa_font_file}.zip \
-    && unzip /root/${ipa_font_file}.zip -d /root/.fonts \
-    && fc-cache -fv \
-    && rm /root/${ipa_font_file}.zip \
-    && echo $'/IPAMincho << /FileType /TrueType /Path (/root/.fonts/${ipa_font_file}/ipaexm.ttf) /CSI [(Japan1) 6] >> ;\n\
-/IPAGothic << /FileType /TrueType /Path (/root/.fonts/${ipa_font_file}/ipaexg.ttf) /CSI [(Japan1) 6] >> ;\n\
-/Adobe-Japan1 /IPAMincho ;' >> /usr/share/ghostscript/${ghost_script_version}/Resource/Init/cidfmap
+#
+# Install Java 11 LTS / OpenJDK 11
+#
+RUN if grep -q Debian /etc/os-release && grep -q stretch /etc/os-release; then \
+		echo 'deb http://deb.debian.org/debian stretch-backports main' | sudo tee -a /etc/apt/sources.list.d/stretch-backports.list; \
+	elif grep -q Ubuntu /etc/os-release && grep -q xenial /etc/os-release; then \
+		sudo apt-get update && sudo apt-get install -y software-properties-common && \
+		sudo add-apt-repository -y ppa:openjdk-r/ppa; \
+	fi && \
+	sudo apt-get update && sudo apt-get install -y openjdk-11-jre openjdk-11-jre-headless openjdk-11-jdk openjdk-11-jdk-headless && \
+	sudo apt-get install -y bzip2 libgconf-2-4 # for extracting firefox and running chrome, respectively
+
+# install chrome
+
+RUN curl --silent --show-error --location --fail --retry 3 --output /tmp/google-chrome-stable_current_amd64.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
+    && (sudo dpkg -i /tmp/google-chrome-stable_current_amd64.deb || sudo apt-get -fy install)  \
+    && rm -rf /tmp/google-chrome-stable_current_amd64.deb \
+    && sudo sed -i 's|HERE/chrome"|HERE/chrome" --disable-setuid-sandbox --no-sandbox|g' \
+        "/opt/google/chrome/google-chrome" \
+    && google-chrome --version
+
+RUN CHROME_VERSION="$(google-chrome --version)" \
+    && export CHROMEDRIVER_RELEASE="$(echo $CHROME_VERSION | sed 's/^Google Chrome //')" && export CHROMEDRIVER_RELEASE=${CHROMEDRIVER_RELEASE%%.*} \
+    && CHROMEDRIVER_VERSION=$(curl --silent --show-error --location --fail --retry 4 --retry-delay 5 http://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROMEDRIVER_RELEASE}) \
+    && curl --silent --show-error --location --fail --retry 4 --retry-delay 5 --output /tmp/chromedriver_linux64.zip "http://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip" \
+    && cd /tmp \
+    && unzip chromedriver_linux64.zip \
+    && rm -rf chromedriver_linux64.zip \
+    && sudo mv chromedriver /usr/local/bin/chromedriver \
+    && sudo chmod +x /usr/local/bin/chromedriver \
+    && chromedriver --version
+
+# start xvfb automatically to avoid needing to express in circle.yml
+ENV DISPLAY :99
+RUN printf '#!/bin/sh\nXvfb :99 -screen 0 1280x1024x24 &\nexec "$@"\n' > /tmp/entrypoint \
+  && chmod +x /tmp/entrypoint \
+        && sudo mv /tmp/entrypoint /docker-entrypoint.sh
+
+# ensure that the build agent doesn't override the entrypoint
+LABEL com.circleci.preserve-entrypoint=true
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["/bin/sh"]
