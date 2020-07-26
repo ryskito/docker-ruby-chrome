@@ -43,4 +43,3 @@ LABEL com.circleci.preserve-entrypoint=true
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["/bin/sh"]
-
